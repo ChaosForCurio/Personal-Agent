@@ -7,8 +7,10 @@ import {
   getTrendingAINews,
   getLatestResearchPapers,
   analyzeTrendingTopics,
-  performGeneralSearch
+  performGeneralSearch,
+  getAnalysisAndInsights
 } from '@/lib/gemini';
+import { getXPostsPreview } from '@/lib/twitter';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { postToTwitter } from '@/lib/twitter';
@@ -18,9 +20,10 @@ import Image from 'next/image';
 
 export default function Home() {
   const user = useUser();
-  const [activeTab, setActiveTab] = useState<'news' | 'papers' | 'trends' | 'search' | null>(null);
+  const [activeTab, setActiveTab] = useState<'news' | 'papers' | 'trends' | 'analysis' | 'xposts' | 'search' | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // Text-to-speech functionality
   const speakText = (text: string) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel(); // Stop any current speech
@@ -41,49 +44,43 @@ export default function Home() {
     }
   };
 
-  const [content, setContent] = useState<Record<string, string>>({
+  const [content, setContent] = useState<Record<string, any>>({
     news: '',
     papers: '',
     trends: '',
+    analysis: '',
+    xposts: [],
     search: ''
   });
 
   const [lastTranscript, setLastTranscript] = useState('');
+  const [lastQuery, setLastQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [isGeneratingImg, setIsGeneratingImg] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Auto-scroll to content result
   const contentRef = useRef<HTMLDivElement>(null);
 
   const handleVoiceInput = async (text: string) => {
     setLastTranscript(text);
+    setLastQuery(text);
     setIsLoading(true);
-    setGeneratedImage(null); // Reset image on new command
+    setGeneratedImage(null);
+    setError(null);
     const lowerText = text.toLowerCase();
 
     try {
       if (lowerText.includes('news')) {
         setActiveTab('news');
+        const query = text.replace(/news|about|get|latest|trending|ai/gi, '').trim() || undefined;
         if (!content.news || lowerText.includes('refresh')) {
-          const result = await getTrendingAINews();
+          const result = await getTrendingAINews(query);
           setContent(prev => ({ ...prev, news: result }));
         }
-      } else if (lowerText.includes('papers')) {
-        setActiveTab('papers');
-        if (!content.papers || lowerText.includes('refresh')) {
-          const result = await getLatestResearchPapers();
-          setContent(prev => ({ ...prev, papers: result }));
-        }
-      } else if (lowerText.includes('trends')) {
-        setActiveTab('trends');
-        if (!content.trends || lowerText.includes('refresh')) {
-          const result = await analyzeTrendingTopics();
-          setContent(prev => ({ ...prev, trends: result }));
-        }
       } else if (lowerText.includes('post') && lowerText.includes('twitter')) {
-        // Post the currently active content
         if (activeTab && content[activeTab]) {
           await handlePostToTwitter(content[activeTab].substring(0, 280), generatedImage || undefined);
         }
@@ -91,17 +88,44 @@ export default function Home() {
         if (activeTab && content[activeTab]) {
           await handleGenerateImage();
         }
+      } else if (lowerText.includes('papers') || lowerText.includes('research')) {
+        setActiveTab('papers');
+        const query = text.replace(/papers|research|about|get|latest|ai/gi, '').trim() || undefined;
+        if (!content.papers || lowerText.includes('refresh')) {
+          const result = await getLatestResearchPapers(query);
+          setContent(prev => ({ ...prev, papers: result }));
+        }
+      } else if (lowerText.includes('trends')) {
+        setActiveTab('trends');
+        const query = text.replace(/trends|trending|analysis|about|get|latest|ai/gi, '').trim() || undefined;
+        if (!content.trends || lowerText.includes('refresh')) {
+          const result = await analyzeTrendingTopics(query);
+          setContent(prev => ({ ...prev, trends: result }));
+        }
+      } else if (lowerText.includes('analysis') || lowerText.includes('analyze')) {
+        setActiveTab('analysis');
+        const query = text.replace(/analysis|analyze|about|get|insights|ai|on/gi, '').trim();
+        if (query || !content.analysis || lowerText.includes('refresh')) {
+          const result = await getAnalysisAndInsights(query || 'artificial intelligence');
+          setContent(prev => ({ ...prev, analysis: result }));
+        }
+      } else if (lowerText.includes('posts') || lowerText.includes('tweets')) {
+        setActiveTab('xposts');
+        const query = text.replace(/posts|tweets|x posts|about|get|latest|on/gi, '').trim() || 'AI';
+        if (!content.xposts?.length || lowerText.includes('refresh')) {
+          const result = await getXPostsPreview(query);
+          setContent(prev => ({ ...prev, xposts: result }));
+        }
       } else {
-        // Default to General Search for any other query
         setActiveTab('search');
         const result = await performGeneralSearch(text);
         setContent(prev => ({ ...prev, search: result }));
       }
     } catch (error) {
       console.error('Error processing command:', error);
+      setError('Sorry, I encountered an error while processing your request.');
     } finally {
       setIsLoading(false);
-      setTimeout(() => contentRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
   };
 
@@ -122,6 +146,7 @@ export default function Home() {
     } catch (e) {
       console.error(e);
       alert('Failed to generate image.');
+      setError('Failed to generate the image. Please try again.');
     } finally {
       setIsGeneratingImg(false);
     }
@@ -135,47 +160,92 @@ export default function Home() {
       alert('Success! Posted to X.');
     } catch (e) {
       console.error(e);
+      setError('Failed to post to X. Please check your connection and try again.');
       alert('Failed to post to X.');
     } finally {
       setIsPosting(false);
     }
   };
 
-  if (isLoading) {
-    // Optional: could show a loading overlay here if full page blocking is desired
-  }
+  useEffect(() => {
+    if (activeTab && contentRef.current) {
+      contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [activeTab, content]);
 
   // Simplified Landing State (when no user)
   if (!user) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 relative overflow-hidden">
-        {/* Ambient Background */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-4xl bg-blue-900/20 blur-[120px] rounded-full pointer-events-none" />
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-900/10 blur-[100px] rounded-full pointer-events-none" />
+      <div className="min-h-screen bg-gradient-to-b from-black via-blue-950/10 to-black flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        {/* Animated Background Gradients */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/20 blur-[140px] rounded-full pointer-events-none animate-pulse" />
+        <div className="absolute top-1/3 right-1/4 w-80 h-80 bg-cyan-600/15 blur-[130px] rounded-full pointer-events-none animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-purple-600/10 blur-[120px] rounded-full pointer-events-none" />
 
-        <div className="z-10 text-center space-y-8 max-w-lg glass-panel p-12 rounded-3xl animate-fade-in border-white/5">
-          <div className="mx-auto w-24 h-24 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-500/20 animate-float">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" /><path d="M17.599 6.5a3 3 0 0 0 .399-1.375" /><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" /><path d="M3.477 10.896a4 4 0 0 1 .585-.396" /><path d="M19.938 10.5a4 4 0 0 1 .585.396" /><path d="M6 18a4 4 0 0 1-1.97-3.284" /><path d="M17.97 14.716A4 4 0 0 1 18 18" /></svg>
+        <div className="z-10 text-center space-y-10 max-w-2xl w-full">
+          {/* Logo Section */}
+          <div className="space-y-6">
+            <div className="mx-auto w-32 h-32 relative">
+              <div className="absolute inset-0 bg-gradient-to-tr from-blue-600 via-cyan-600 to-indigo-600 rounded-3xl blur-2xl opacity-40" />
+              <div className="relative w-32 h-32 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/40 animate-float border border-cyan-400/20">
+                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h1 className="text-6xl font-black text-white tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white via-cyan-200 to-blue-200">
+                Personal AI Agent
+              </h1>
+              <p className="text-gray-300 text-xl leading-relaxed max-w-xl mx-auto font-light">
+                Your intelligent voice-activated assistant for real-time insights, research, and seamless social connectivity.
+              </p>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <h1 className="text-5xl font-bold text-white tracking-tight">
-              Personal AI Agent
-            </h1>
-            <p className="text-gray-400 text-lg leading-relaxed">
-              Your intelligent voice-activated assistant for real-time insights, research, and seamless social connectivity.
-            </p>
-          </div>
-
+          {/* Sign In Section */}
           <div className="pt-4">
-            <Link
-              href="/handler/sign-in"
-              className="group inline-flex items-center px-8 py-4 rounded-full bg-white text-black font-bold text-lg hover:bg-gray-100 transition-all shadow-lg hover:shadow-xl hover:-translate-y-1"
-            >
-              Get Started
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-2 group-hover:translate-x-1 transition-transform"><path d="m5 12 7-7 7 7 7 7" /><path d="M12 19V5" /></svg>
-            </Link>
+            <div className="backdrop-blur-md bg-white/5 border border-white/10 rounded-3xl p-8 space-y-5 max-w-sm mx-auto shadow-2xl">
+              <div className="space-y-1 pb-2">
+                <h2 className="text-xl font-bold text-white">Get Started</h2>
+                <p className="text-sm text-gray-400">Choose your preferred sign-in method</p>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <a
+                  href="/handler/sign-in/google"
+                  className="group relative w-full overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <div className="relative w-full inline-flex items-center justify-center px-6 py-4 rounded-xl bg-white text-black font-semibold text-base transition-all duration-300 group-hover:bg-transparent group-hover:text-white group-hover:shadow-lg group-hover:shadow-blue-500/30 group-hover:-translate-y-0.5 border border-transparent group-hover:border-cyan-400/50">
+                    <Image src="/google.svg" width={20} height={20} alt="Google" className="mr-3" />
+                    Continue with Google
+                  </div>
+                </a>
+
+                <a
+                  href="/handler/sign-in/github"
+                  className="group relative w-full overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <div className="relative w-full inline-flex items-center justify-center px-6 py-4 rounded-xl bg-neutral-900 text-white font-semibold text-base hover:bg-neutral-800 transition-all duration-300 border border-white/15 group-hover:border-purple-400/50 group-hover:shadow-lg group-hover:shadow-purple-500/30 group-hover:-translate-y-0.5 group-hover:bg-transparent">
+                    <Image src="/github.svg" width={20} height={20} alt="GitHub" className="mr-3" />
+                    Continue with GitHub
+                  </div>
+                </a>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                <span className="text-xs text-gray-500 font-medium">Secure & Fast</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+              </div>
+            </div>
           </div>
+
+          {/* Footer Text */}
+          <p className="text-xs text-gray-500 pt-4">
+            No credit card required • Works with Google & GitHub accounts
+          </p>
         </div>
       </div>
     );
@@ -226,49 +296,60 @@ export default function Home() {
           </div>
         </div>
 
+        {error && (
+          <div className="w-full max-w-2xl text-center p-4 rounded-xl bg-red-900/50 border border-red-500/50 text-red-300 animate-fade-in">
+            <p><strong>Error:</strong> {error}</p>
+          </div>
+        )}
+
+
         {/* Content Area */}
         <div ref={contentRef} className="w-full space-y-8">
 
           {/* Action Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {['news', 'papers', 'trends'].map((tab) => (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {['news', 'papers', 'trends', 'analysis', 'xposts'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleVoiceInput(tab)}
-                className={`glass-panel p-6 rounded-2xl transition-all duration-300 group hover:-translate-y-1 ${activeTab === tab
+                className={`glass-panel p-4 rounded-2xl transition-all duration-300 group hover:-translate-y-1 ${activeTab === tab
                   ? 'bg-blue-600/10 border-blue-500/50 shadow-lg shadow-blue-900/20'
                   : 'hover:bg-white/5 hover:border-white/20'}`}
               >
-                <div className={`w-12 h-12 rounded-xl mb-4 flex items-center justify-center transition-colors ${activeTab === tab ? 'bg-blue-500 text-white' : 'bg-white/5 text-gray-400 group-hover:bg-white/10 group-hover:text-white'}`}>
-                  {tab === 'news' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" /><path d="M18 14h-8" /><path d="M15 18h-5" /><path d="M10 6h8v4h-8V6Z" /></svg>}
-                  {tab === 'papers' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" x2="12" y1="2" y2="15" /></svg>}
-                  {tab === 'trends' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>}
+                <div className={`w-10 h-10 rounded-xl mb-3 flex items-center justify-center transition-colors ${activeTab === tab ? 'bg-blue-500 text-white' : 'bg-white/5 text-gray-400 group-hover:bg-white/10 group-hover:text-white'}`}>
+                  {tab === 'news' && <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" /><path d="M18 14h-8" /><path d="M15 18h-5" /><path d="M10 6h8v4h-8V6Z" /></svg>}
+                  {tab === 'papers' && <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" x2="12" y1="2" y2="15" /></svg>}
+                  {tab === 'trends' && <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>}
+                  {tab === 'analysis' && <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20m-7-5h14" /><rect x="3" y="3" width="18" height="18" rx="2" /></svg>}
+                  {tab === 'xposts' && <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" x2="11" y1="2" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>}
                 </div>
-                <h3 className="font-semibold text-lg text-left capitalize text-gray-100 group-hover:text-white mb-1">
-                  {tab === 'news' ? 'AI News' : tab === 'papers' ? 'Research' : 'Analysis'}
+                <h3 className="font-semibold text-sm text-left capitalize text-gray-100 group-hover:text-white mb-1">
+                  {tab === 'news' ? 'News' : tab === 'papers' ? 'Papers' : tab === 'trends' ? 'Trends' : tab === 'analysis' ? 'Analysis' : 'X Posts'}
                 </h3>
-                <p className="text-sm text-left text-gray-500 font-light">
-                  {tab === 'news' ? 'Latest headlines' : tab === 'papers' ? 'ArXiv papers' : 'Market trends'}
+                <p className="text-xs text-left text-gray-500 font-light">
+                  {tab === 'news' ? 'Headlines' : tab === 'papers' ? 'Research' : tab === 'trends' ? 'Trending' : tab === 'analysis' ? 'Insights' : 'Posts'}
                 </p>
               </button>
             ))}
           </div>
 
           {/* Display Area */}
-          {activeTab && content[activeTab] && (
+          {activeTab && ((activeTab === 'xposts' && content.xposts?.length > 0) || (activeTab !== 'xposts' && content[activeTab])) && (
             <div className="glass-panel rounded-3xl p-8 shadow-2xl overflow-hidden relative transition-all animate-fade-in border-white/10">
 
               {/* Header: Title & Speak Button */}
               <div className="flex items-center justify-between mb-8 pb-6 border-b border-white/5 flex-wrap gap-6">
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-xl ${activeTab === 'news' ? 'bg-blue-500/20 text-blue-400' : activeTab === 'papers' ? 'bg-purple-500/20 text-purple-400' : activeTab === 'trends' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
+                  <div className={`p-3 rounded-xl ${activeTab === 'news' ? 'bg-blue-500/20 text-blue-400' : activeTab === 'papers' ? 'bg-purple-500/20 text-purple-400' : activeTab === 'trends' ? 'bg-emerald-500/20 text-emerald-400' : activeTab === 'analysis' ? 'bg-orange-500/20 text-orange-400' : activeTab === 'xposts' ? 'bg-pink-500/20 text-pink-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
                     {activeTab === 'news' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" /><path d="M18 14h-8" /><path d="M15 18h-5" /><path d="M10 6h8v4h-8V6Z" /></svg>}
                     {activeTab === 'papers' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M16 13H8" /><path d="M16 17H8" /><path d="M10 9H8" /></svg>}
                     {activeTab === 'trends' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 17v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2" /><polyline points="3 10 21 10" /><path d="M4.5 14h.01" /><path d="M7.5 14h.01" /><path d="M10.5 14h.01" /></svg>}
+                    {activeTab === 'analysis' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" x2="18" y1="3" y2="21" /><line x1="12" x2="12" y1="3" y2="21" /><line x1="6" x2="6" y1="3" y2="21" /><line x1="2" x2="22" y1="17" y2="17" /></svg>}
+                    {activeTab === 'xposts' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" x2="11" y1="2" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>}
                     {activeTab === 'search' && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>}
                   </div>
                   <h2 className="text-2xl font-bold text-white capitalize tracking-tight">
-                    {activeTab === 'search' ? 'Search Results' : `Latest ${activeTab}`}
+                    {activeTab === 'search' ? 'Search Results' : activeTab === 'xposts' ? 'X Posts' : `Latest ${activeTab}`}
                   </h2>
                 </div>
 

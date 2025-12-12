@@ -73,3 +73,96 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Ensure Stack's auth pages have the correct dark background */
+body.stack-auth-page {
+  background-color: var(--background);
+}
+
+/* Stack Theme Customization */
+:root {
+  --stack-colors-primary: 59 130 246;
+  --stack-colors-primary-foreground: 255 255 255;
+  --stack-colors-secondary: 6 182 212;
+  --stack-colors-secondary-foreground: 255 255 255;
+  --stack-colors-background: 0 0 0;
+  --stack-colors-foreground: 237 237 237;
+  --stack-colors-card: 23 23 23;
+  --stack-colors-card-foreground: 237 237 237;
+  --stack-colors-muted: 64 64 64;
+  --stack-colors-muted-foreground: 163 163 163;
+  --stack-colors-destructive: 239 68 68;
+  --stack-colors-destructive-foreground: 255 255 255;
+  --stack-colors-border: 39 39 42;
+  --stack-colors-input: 23 23 23;
+  --stack-colors-ring: 59 130 246;
+}
+
+/* Stack UI Styling */
+[data-testid="stack-card"],
+[class*="StackCard"],
+[class*="Card-"] {
+  background-color: rgba(23, 23, 23, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 1rem !important;
+}
+
+button[class*="Button"],
+button[class*="button"],
+[role="button"] {
+  background-color: rgb(var(--stack-colors-primary)) !important;
+  color: rgb(var(--stack-colors-primary-foreground)) !important;
+  border-radius: 0.5rem !important;
+  font-weight: 600 !important;
+  transition: all 0.3s ease !important;
+}
+
+button:hover[class*="Button"],
+button:hover[class*="button"] {
+  opacity: 0.9 !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3) !important;
+}
+
+input,
+textarea,
+[class*="Input"],
+[class*="input-"] {
+  background-color: rgba(23, 23, 23, 0.6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: rgb(var(--stack-colors-foreground)) !important;
+  border-radius: 0.5rem !important;
+  padding: 0.75rem !important;
+}
+
+input:focus,
+textarea:focus,
+[class*="Input"]:focus,
+[class*="input-"]:focus {
+  border-color: rgb(var(--stack-colors-primary)) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+label {
+  color: rgb(var(--stack-colors-foreground)) !important;
+}
+
+a {
+  color: rgb(var(--stack-colors-primary)) !important;
+}
+
+a:hover {
+  opacity: 0.8 !important;
+}
+
+/* Ensure auth pages center content */
+[class*="StackApp"],
+[class*="StackHandler"] {
+  min-height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}

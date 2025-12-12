@@ -5,18 +5,18 @@ import { searchGoogle, searchNews } from './serper';
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 
-export async function getTrendingAINews() {
+export async function getTrendingAINews(userQuery?: string) {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
-  // 1. Get real-time data from Google Search
+  const newsQuery = userQuery || "latest trending AI news today";
+
   let searchContext = "";
   try {
-    let searchResults = await searchNews("latest trending AI news today");
+    let searchResults = await searchNews(newsQuery);
 
-    // Fallback to standard search if news returns nothing
     if (!searchResults || searchResults.length === 0) {
       console.log("Serper News returned no results, falling back to standard search.");
-      searchResults = await searchGoogle("latest trending AI news today");
+      searchResults = await searchGoogle(newsQuery);
     }
 
     if (searchResults && searchResults.length > 0) {
@@ -25,7 +25,7 @@ export async function getTrendingAINews() {
   } catch (error) {
     console.error("Serper API (News) failed, trying standard search fallback:", error);
     try {
-      const searchResults = await searchGoogle("latest trending AI news today");
+      const searchResults = await searchGoogle(newsQuery);
       if (searchResults && searchResults.length > 0) {
         searchContext = searchResults.map((r: any) => `- ${r.title}: ${r.snippet} (${r.link})`).join('\n');
       }
@@ -34,12 +34,11 @@ export async function getTrendingAINews() {
     }
   }
 
-  // Handle empty search context to prevent LLM confusion
   if (!searchContext) {
-    return "Unable to retrieve trending AI news at this time. Please check your Serper API configuration or internet connection.";
+    return `Unable to retrieve news about "${newsQuery}" at this time. Please check your API configuration or internet connection.`;
   }
 
-  const prompt = `You are an AI news curator. Find the top 5 trending AI news stories from today. 
+  const prompt = `You are an AI news curator. Find the trending news stories about: "${newsQuery}". 
   
   Use the following real-time search results as your primary source:
   ${searchContext}
@@ -62,28 +61,30 @@ export async function getTrendingAINews() {
         return `**Note: AI generation limit reached. Showing raw search results:**\n\n${searchContext}`;
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return `Unable to retrieve trending AI news. API Error: ${errorMessage}`;
+      return `Unable to retrieve news. API Error: ${errorMessage}`;
     }
   }
 }
 
-export async function getLatestResearchPapers() {
+export async function getLatestResearchPapers(userQuery?: string) {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+  const papersQuery = userQuery ? `${userQuery} research papers arxiv` : "latest AI research papers arxiv neurips 2025";
 
   let searchContext = "";
   try {
-    const searchResults = await searchGoogle("latest AI research papers arxiv neurips 2025");
+    const searchResults = await searchGoogle(papersQuery);
     searchContext = searchResults.map((r: any) => `- ${r.title}: ${r.snippet} (${r.link})`).join('\n');
   } catch (error) {
     console.error("Serper API failed:", error);
   }
 
   if (!searchContext) {
-    return "Unable to retrieve latest research papers at this time. Please check your Serper API configuration.";
+    return `Unable to retrieve research papers about "${papersQuery}" at this time. Please check your Serper API configuration.`;
   }
 
-  const prompt = `You are a research assistant. Find the latest AI research papers from arXiv, 
-  major conferences (NeurIPS, ICML, ICLR, CVPR, ACL), and preprints. 
+  const prompt = `You are a research assistant. Find the latest research papers about: "${userQuery || 'AI'}". 
+  Look from arXiv, major conferences (NeurIPS, ICML, ICLR, CVPR, ACL), and preprints.
   
   Use these search results:
   ${searchContext}
@@ -111,22 +112,24 @@ export async function getLatestResearchPapers() {
   }
 }
 
-export async function analyzeTrendingTopics() {
+export async function analyzeTrendingTopics(userQuery?: string) {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+  const topicQuery = userQuery ? `trending topics in ${userQuery} discussions` : "trending topics in artificial intelligence today discussions";
 
   let searchContext = "";
   try {
-    const searchResults = await searchGoogle("trending topics in artificial intelligence today discussions");
+    const searchResults = await searchGoogle(topicQuery);
     searchContext = searchResults.map((r: any) => `- ${r.title}: ${r.snippet}`).join('\n');
   } catch (error) {
     console.error("Serper API failed:", error);
   }
 
   if (!searchContext) {
-    return "Unable to analyze trending topics at this time. Please check your Serper API configuration.";
+    return `Unable to analyze trending topics about "${topicQuery}" at this time. Please check your Serper API configuration.`;
   }
 
-  const prompt = `Analyze today's trending topics in AI. 
+  const prompt = `Analyze today's trending topics${userQuery ? ` in ${userQuery}` : ' in AI'}. 
   
   Based on these search results:
   ${searchContext}
@@ -201,6 +204,55 @@ export async function performGeneralSearch(query: string) {
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
       return `Unable to perform search. API Error: ${errorMessage}`;
+    }
+  }
+}
+
+export async function getAnalysisAndInsights(userQuery: string) {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+  let searchContext = "";
+  try {
+    const searchResults = await searchGoogle(`analysis insights ${userQuery}`);
+    searchContext = searchResults.map((r: any) => `- ${r.title}: ${r.snippet} (${r.link})`).join('\n');
+  } catch (error) {
+    console.error("Serper API failed:", error);
+  }
+
+  if (!searchContext) {
+    return `Unable to retrieve analysis and insights about "${userQuery}". Please check your API configuration.`;
+  }
+
+  const prompt = `You are an expert analyst. Provide deep analysis and actionable insights about: "${userQuery}".
+  
+  Based on these search results:
+  ${searchContext}
+
+  Provide:
+  1. **Key Insights**: Main findings and observations
+  2. **Market/Technology Impact**: How this affects the industry
+  3. **Trends**: Emerging patterns and directions
+  4. **Expert Perspectives**: Different viewpoints
+  5. **Future Outlook**: What to expect next
+
+  Use **Markdown** formatting with clear sections and bullet points.`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (error) {
+    console.warn("Gemini 2.0 Flash failed (getAnalysisAndInsights), attempting fallback to 1.5 Flash:", error);
+    try {
+      const modelFallback = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await modelFallback.generateContent(prompt);
+      return result.response.text();
+    } catch (fallbackError) {
+      console.error("Gemini API Error (All models failed):", fallbackError);
+      if (searchContext) {
+        return `**Note: AI generation limit reached. Showing raw search results:**\n\n${searchContext}`;
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return `Unable to provide analysis. API Error: ${errorMessage}`;
     }
   }
 }

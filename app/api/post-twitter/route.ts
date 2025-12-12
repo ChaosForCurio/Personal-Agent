@@ -1,13 +1,20 @@
-// app/api/post-twitter/route.ts
-import { NextResponse } from 'next/server';
-import { postToTwitter } from '@/lib/twitter';
 
-export async function POST(request: Request) {
-    try {
-        const { content } = await request.json();
-        const result = await postToTwitter(content);
-        return NextResponse.json({ success: true, data: result });
-    } catch {
-        return NextResponse.json({ success: false, error: 'Failed to post to X' }, { status: 500 });
+import { postToTwitter } from '@/lib/twitter';
+import { NextResponse } from 'next/server';
+
+export async function POST(req: Request) {
+  try {
+    const { content, image } = await req.json();
+
+    if (!content) {
+      return NextResponse.json({ error: 'Content is required' }, { status: 400 });
     }
+
+    const result = await postToTwitter(content, image);
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error('[API] Error posting to Twitter:', error);
+    const errorMessage = (error as Error).message || 'Failed to post to Twitter';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
+  }
 }
